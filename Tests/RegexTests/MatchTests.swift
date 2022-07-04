@@ -1446,6 +1446,54 @@ extension RegexTests {
       ("cafe", true),
       ("CaFe", true),
       ("EfAc", true))
+    // Scalar mode
+    matchTest(
+      #"c..e"#,
+      ("cafe", true),
+      ("Cafe", false),
+      semanticLevel: .unicodeScalar)
+    matchTest(
+      #"(?i)c.f."#,
+      ("cafe", true),
+      ("Cafe", true),
+      ("caFe", true),
+      semanticLevel: .unicodeScalar)
+    matchTest(
+      #"(?i)cafe"#,
+      ("cafe", true),
+      ("Cafe", true),
+      ("caFe", true),
+      semanticLevel: .unicodeScalar)
+    matchTest(
+      #"(?i)café"#,
+      ("café", true),
+      ("CafÉ", true),
+      semanticLevel: .unicodeScalar)
+    matchTest(
+      #"(?i)\u{63}af\u{e9}"#,
+      ("café", true),
+      ("CafÉ", true),
+      semanticLevel: .unicodeScalar)
+    
+    matchTest(
+      #"[caFE]{4}"#,
+      ("cafe", false),
+      ("CAFE", false),
+      ("caFE", true),
+      ("EFac", true),
+      semanticLevel: .unicodeScalar)
+    matchTest(
+      #"(?i)[caFE]{4}"#,
+      ("cafe", true),
+      ("CaFe", true),
+      ("EfAc", true),
+      semanticLevel: .unicodeScalar)
+    matchTest(
+      #"(?i)[a-f]{4}"#,
+      ("cafe", true),
+      ("CaFe", true),
+      ("EfAc", true),
+      semanticLevel: .unicodeScalar)
   }
 
   func testNonSemanticWhitespace() {
@@ -1863,9 +1911,6 @@ extension RegexTests {
 
     firstMatchTest("a", input: "a\u{301}", match: "a", semanticLevel: .unicodeScalar)
     firstMatchTest("aa", input: "aa\u{301}", match: "aa", semanticLevel: .unicodeScalar)
-
-    // case insensitive tests
-    firstMatchTest(#"(?i)abc\u{301}d"#, input: "AbC\u{301}d", match: "AbC\u{301}d", semanticLevel: .unicodeScalar)
   }
   
   func testCase() {
