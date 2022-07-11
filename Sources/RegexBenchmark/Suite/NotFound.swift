@@ -10,7 +10,7 @@ extension BenchmarkRunner {
     notFound.register(&self)
 
     let anchoredNotFound = CrossBenchmark(
-      baseName: "notFound", regex: "^ +a", input: input)
+      baseName: "anchoredNotFound", regex: "^ +a", input: input)
     anchoredNotFound.register(&self)
   }
 }
