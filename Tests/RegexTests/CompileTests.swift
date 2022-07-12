@@ -45,8 +45,7 @@ enum DecodedInstr {
   case endCapture
   case transformCapture
   case captureValue
-  case builtinAssertion
-  case builtinCharacterClass
+  case quantify
 }
 
 extension DecodedInstr {
@@ -131,10 +130,8 @@ extension DecodedInstr {
         return .transformCapture
       case .captureValue:
         return .captureValue
-      case .builtinAssertion:
-        return .builtinAssertion
-      case .builtinCharacterClass:
-        return .builtinCharacterClass
+      case .quantify:
+        return .quantify
 }
   }
 }

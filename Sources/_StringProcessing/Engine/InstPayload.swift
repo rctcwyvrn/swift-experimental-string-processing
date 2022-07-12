@@ -9,6 +9,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+@_implementationOnly import _RegexParser
+
 extension Instruction {
   /// An instruction's payload packs operands and destination
   /// registers.
@@ -239,6 +241,13 @@ extension Instruction.Payload {
     let isScalar = (val >> 14) & 1 == 1
     return (cc, isStrict, isScalar)
   }
+
+  init(quantify payload: QuantifyPayload) {
+    self.init(rawValue: payload.rawValue)
+  }
+  var quantify: QuantifyPayload {
+    QuantifyPayload.init(rawValue: self.rawValue & _payloadMask)
+  }
   
   init(consumer: ConsumeFunctionRegister) {
     self.init(consumer)
@@ -355,3 +364,88 @@ extension Instruction.Payload {
   }
 }
 
+struct QuantifyPayload: RawRepresentable {
+  let rawValue: UInt64
+  
+  enum PayloadType: UInt64 {
+    case bitset = 0
+    case asciiChar
+    case any
+    case builtin
+  }
+  
+  // The top 8 bits are reserved for the opcode so we have 56 bits to work with
+  // b55,b54 - Payload type (one of 4 types)
+  // b53-b37 - minTrips (16 bit int)
+  // b37-b20 - extraTrips (16 bit value, one bit for nil)
+  // b20-16  - Quantification type (one of three types)
+  // b16-b0 - Payload value (depends on payload type)
+  static let kindShift: UInt64 = 16
+  static let extraTripsShift: UInt64 = 20
+  static let minTripsShift: UInt64 = 37
+  static let typeShift: UInt64 = 54
+  
+  static func packInfoValues(
+    _ kind: AST.Quantification.Kind,
+    _ minTrips: Int,
+    _ extraTrips: Int?,
+    _ type: PayloadType
+  ) -> UInt64 {
+    let extraTripsVal = extraTrips == nil ? 1 : extraTrips! << 1
+    return (kind.asInt << kindShift) + (extraTripsVal << extraTripsShift) + (minTrips << minTripsShift) + (type << typeShift)
+  }
+
+  init(rawValue: UInt64) {
+    self.rawValue = rawValue
+    assert(rawValue & _opcodeMask == 0)
+  }
+  
+  init(
+    bitset: AsciiBitsetRegister,
+    _ kind: AST.Quantification.Kind,
+    _ minTrips: Int,
+    _ extraTrips: Int?
+  ) {
+    assert(bitset.bits < 0xFF_FF)
+    self.rawValue = bitset.bits + QuantifyPayload.packInfoValues(kind, minTrips, extraTrips, .bitset)
+  }
+  
+  init(
+    asciiChar: UInt8,
+    _ kind: AST.Quantification.Kind,
+    _ minTrips: Int,
+    _ extraTrips: Int?
+  ) {
+    self.rawValue = UInt64(asciiChar) + QuantifyPayload.packInfoValues(kind, minTrips, extraTrips, .asciiChar)
+  }
+  
+  init(
+    _ kind: AST.Quantification.Kind,
+    _ minTrips: Int,
+    _ extraTrips: Int?
+  ) {
+    self.rawValue = QuantifyPayload.packInfoValues(kind, minTrips, extraTrips, .any)
+  }
+  
+  init(
+    builtin: BuiltinCC,
+    _ kind: AST.Quantification.Kind,
+    _ minTrips: Int,
+    _ extraTrips: Int?
+  ) {
+    self.rawValue = builtin + QuantifyPayload.packInfoValues(kind, minTrips, extraTrips, .builtin)
+  }
+}
+
+extension AST.Quantification.Kind {
+  var asInt: UInt64 {
+    switch self {
+    case .eager:
+      return 0
+    case .reluctant:
+      return 1
+    case .possessive:
+      return 2
+    }
+  }
+}
