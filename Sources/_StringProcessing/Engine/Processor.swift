@@ -277,6 +277,8 @@ extension Processor {
     currentPosition = idx
     return true
   }
+  
+  @
 
   // If we have a bitset we know that the CharacterClass only matches against
   // ascii characters, so check if the current input element is ascii then
@@ -306,6 +308,9 @@ extension Processor {
     return true
   }
 
+  mutating func runQuantify(_ payload: QuantifyPayload) {
+    
+  }
   mutating func signalFailure() {
     guard let (pc, pos, stackEnd, capEnds, intRegisters, posRegisters) =
             savePoints.popLast()?.destructure
@@ -488,6 +493,9 @@ extension Processor {
           controller.step()
         }
       }
+    case .quantify:
+      let quant = payload.quantify
+      runQuantify(quant)
 
     case .consumeBy:
       let reg = payload.consumer

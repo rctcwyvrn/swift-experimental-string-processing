@@ -454,6 +454,20 @@ fileprivate extension Compiler.ByteCodeGen {
     let minTrips = low
     assert((extraTrips ?? 1) >= 0)
 
+    // We want to specialize quantification on certain inner nodes
+    // Those nodes are:
+    // - .char
+    // - .customCharacterClass
+    // - built in character classes
+    // - .any
+    // We do this by wrapping a single instruction in a .quantify instruction
+    let x = 65536 // lily todo: fix this once i determine the bit layout
+    if child.shouldDoFastQuant(options) &&
+        minTrips < x &&
+        extraTrips ?? 0 < x {
+      emitFastQuant(child, updatedKind, minTrips, extraTrips)
+    }
+
     // The below is a general algorithm for bounded and unbounded
     // quantification. It can be specialized when the min
     // is 0 or 1, or when extra trips is 1 or unbounded.
@@ -638,6 +652,37 @@ fileprivate extension Compiler.ByteCodeGen {
     builder.label(exit)
   }
 
+  mutating func emitFastQuant(
+    _ child: DSLTree.Node,
+    _ kind: AST.Quantification.Kind,
+    _ minTrips: Int,
+    _ extraTrips: Int?
+  ) {
+    // These cases must stay in sync with DSLTree.Node.shouldDoFastQuant
+    // as well as the compilation paths for these nodes outside of quantification
+    
+    // Coupling is bad but we do it for _speed_
+    switch child {
+    case .customCharacterClass(let ccc):
+      builder.buildQuantify(bitset: ccc.asAsciiBitset(options)!, kind, minTrips, extraTrips)
+    case .atom(let atom):
+      switch atom {
+      case .char(let c):
+        builder.buildQuantify(asciiChar: c._singleScalarAsciiValue!, kind, minTrips, extraTrips)
+      case .any:
+        builder.buildQuantifyAny(kind, minTrips, extraTrips)
+      case .unconverted(let astAtom):
+        builder.buildQuantify(builtin: astAtom.ast.characterClass!.builtinCC!, kind, minTrips, extraTrips)
+      default:
+        fatalError("Entered emitFastQuant with an invalid case: DSLTree.Node.shouldDoFastQuant is out of sync")
+      }
+    case .convertedRegexLiteral(let node, _):
+      emitFastQuant(node, kind, minTrips, extraTrips)
+    default:
+      fatalError("Entered emitFastQuant with an invalid case: DSLTree.Node.shouldDoFastQuant is out of sync")
+    }
+  }
+
   mutating func emitCustomCharacterClass(
     _ ccc: DSLTree.CustomCharacterClass
   ) throws {
@@ -782,6 +827,37 @@ extension DSLTree.Node {
       let (atLeast, _) = amount.ast.bounds
       return atLeast ?? 0 > 0 && child.guaranteesForwardProgress
     default: return false
+    }
+  }
+
+  /// If the given node can be wrapped in a .quantify instruction
+  /// Currently this is conservative to reduce the coupling in ByteCodeGen between the normal case and
+  /// the quantified cases
+  ///
+  /// Essentially we trade off implementation complexity for runtime speed by adding more true cases to this
+  func shouldDoFastQuant(_ opts: MatchingOptions) -> Bool {
+    switch self {
+    case .customCharacterClass(let ccc):
+      // Only quantify ascii only character classes
+      return ccc.asAsciiBitset(opts) != nil
+    case .atom(let atom):
+      switch atom {
+      case .char(let c):
+        // Only quantify the most common path -> Single scalar ascii values
+        return c._singleScalarAsciiValue != nil
+      case .any:
+        // Only quantify if we have a default behavior .any
+        return !opts.dotMatchesNewline
+      case .unconverted(let astAtom):
+        // Only quantify built in character classes
+        return astAtom.ast.characterClass?.builtinCC != nil
+      default:
+        return false
+      }
+    case .convertedRegexLiteral(let node, _):
+      return node.shouldDoFastQuant(opts)
+    default:
+      return false
     }
   }
 }
