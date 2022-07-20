@@ -29,7 +29,7 @@ extension Processor: TracedProcessor {
 
 extension Instruction: CustomStringConvertible {
   var description: String {
-    switch opcode {
+    switch opcode.decoded {
     case .advance:
       return "\(opcode) \(payload.distance)"
     case .assertBy:

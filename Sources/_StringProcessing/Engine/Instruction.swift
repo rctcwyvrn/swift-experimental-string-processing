@@ -22,7 +22,7 @@ struct Instruction: RawRepresentable, Hashable {
 }
 
 extension Instruction {
-  enum OpCode: UInt64, CaseIterable {
+  enum OpCode: UInt64 {
     case invalid = 0
 
     // MARK: - General Purpose
@@ -35,7 +35,7 @@ extension Instruction {
     ///   - Immediate value to move
     ///   - Int register to move into
     ///
-    case moveImmediate
+    case moveImmediate = 1
 
     /// Move the current position into a register
     ///
@@ -43,7 +43,7 @@ extension Instruction {
     ///
     /// Operands:
     ///   - Position register to move into
-    case moveCurrentPosition
+    case moveCurrentPosition = 2
 
     // MARK: General Purpose: Control flow
 
@@ -52,7 +52,7 @@ extension Instruction {
     ///     branch(to: InstAddr)
     ///
     /// Operand: instruction address to branch to
-    case branch
+    case branch = 1000
 
     /// Conditionally branch if zero, otherwise decrement
     ///
@@ -63,7 +63,7 @@ extension Instruction {
     ///   - Instruction address to branch to, if zero
     ///   - Int register to check for zero, otherwise decrease
     ///
-    case condBranchZeroElseDecrement
+    case condBranchZeroElseDecrement = 3
 
     /// Conditionally branch if the current position is the same as the register
     ///
@@ -73,7 +73,7 @@ extension Instruction {
     /// Operands:
     ///   - Instruction address to branch to, if the position in the register is the same as currentPosition
     ///   - Position register to check against
-    case condBranchSamePosition
+    case condBranchSamePosition = 4
   
     // TODO: Function calls
 
@@ -84,7 +84,7 @@ extension Instruction {
     ///     advance(_ amount: Distance)
     ///
     /// Operand: Amount to advance by.
-    case advance
+    case advance = 5
 
     // TODO: Is the amount useful here? Is it commonly more than 1?
 
@@ -95,14 +95,14 @@ extension Instruction {
     /// Operands:
     ///  - Element register to compare against.
     ///  - Boolean for if we should match in a case insensitive way
-    case match
+    case match = 2000
 
     /// Match against a scalar and possibly perform a boundary check or match in a case insensitive way
     ///
     ///     matchScalar(_: Unicode.Scalar, isCaseInsensitive: Bool, boundaryCheck: Bool)
     ///
     /// Operands: Scalar value to match against and booleans
-    case matchScalar
+    case matchScalar = 2001
 
     /// Match a character or a scalar against a set of valid ascii values stored in a bitset
     ///
@@ -111,9 +111,9 @@ extension Instruction {
     /// Operand:
     ///  - Ascii bitset register containing the bitset
     ///  - Boolean for if we should match by scalar value
-    case matchBitset
+    case matchBitset = 2002
 
-    case matchBuiltin
+    case matchBuiltin = 2003
 
     // MARK: Extension points
 
@@ -121,7 +121,7 @@ extension Instruction {
     /// function.
     ///
     /// Operand: Consume function register to call.
-    case consumeBy
+    case consumeBy = 2004
 
     /// Lookaround assertion operation. Performs a zero width assertion based on
     /// the assertion type and options stored in the payload
@@ -129,7 +129,7 @@ extension Instruction {
     ///     assert(_:AssertionPayload)
     ///
     /// Operands: AssertionPayload containing assertion type and options
-    case assertBy
+    case assertBy = 6
 
     /// Custom value-creating consume operation.
     ///
@@ -142,7 +142,7 @@ extension Instruction {
     ///     )
     ///
     ///
-    case matchBy
+    case matchBy = 7
 
     // MARK: Matching: Save points
 
@@ -156,7 +156,7 @@ extension Instruction {
     ///   - an instruction address to resume from
     ///
     /// TODO: Consider if separating would improve generality
-    case save
+    case save = 1001
 
     ///
     /// Add a save point that doesn't preserve input position
@@ -165,25 +165,25 @@ extension Instruction {
     /// flaws in our formulation of back tracking. We could
     /// instead have an instruction to update the top
     /// most saved position instead
-    case saveAddress
+    case saveAddress = 8
 
     /// Remove the most recently saved point
     ///
     /// Precondition: There is a save point to remove
-    case clear
+    case clear = 9
 
     /// Remove save points up to and including the operand
     ///
     /// Operand: instruction address to look for
     ///
     /// Precondition: The operand is in the save point list
-    case clearThrough
+    case clearThrough = 10
 
     /// Fused save-and-branch. 
     ///
     ///   split(to: target, saving: backtrackPoint)
     ///
-    case splitSaving
+    case splitSaving = 1002
 
     /// Fused quantify, execute, save instruction
     /// Quantifies the stored instruction in an inner loop instead of looping through instructions in processor
@@ -191,35 +191,35 @@ extension Instruction {
     ///
     ///     quantify(_:QuantifyPayload)
     ///
-    case quantify
+    case quantify = 1003
     /// Begin the given capture
     ///
     ///     beginCapture(_:CapReg)
     ///
-    case beginCapture
+    case beginCapture = 1004
 
     /// End the given capture
     ///
     ///     endCapture(_:CapReg)
     ///
-    case endCapture
+    case endCapture = 1005
 
     /// Transform a captured value, saving the built value
     ///
     ///     transformCapture(_:CapReg, _:TransformReg)
     ///
-    case transformCapture
+    case transformCapture = 11
 
     /// Save a value into a capture register
     ///
     ///     captureValue(_: ValReg, into _: CapReg)
-    case captureValue
+    case captureValue = 12
 
     /// Match a previously captured value
     ///
     ///     backreference(_:CapReg)
     ///
-    case backreference
+    case backreference = 13
 
     // MARK: Matching: State transitions
 
@@ -228,14 +228,155 @@ extension Instruction {
     // interact with save points
 
     /// Transition into ACCEPT and halt
-    case accept
+    case accept = 14
 
     /// Signal failure (currently same as `restore`)
-    case fail
+    case fail = 15
 
     // TODO: Fused assertions. It seems like we often want to
     // branch based on assertion fail or success.
+  }
+}
 
+extension Instruction.OpCode {
+  /// Returns the encoding for this opcode
+  /// - if the 8th bit is set, it is a match instruction
+  /// - if the 7th bit is set, it is a priority instruction
+  /// - otherwise, interpret the entire uint as a number
+  var encoded: EncodedOpcode {
+    if let encoding = matchInstrEncoding {
+      return EncodedOpcode(rawValue: encoding)
+    }
+    if let encoding = priorityInstrEncoding {
+      return EncodedOpcode(rawValue: encoding)
+    }
+    return EncodedOpcode(rawValue: standardEncoding)
+  }
+  private var matchInstrBit: UInt64 { 1 << 7 }
+  private var matchInstrEncoding: UInt64? {
+    switch self {
+    case .match:
+      return matchInstrBit + 1 << 6
+    case .matchScalar:
+      return matchInstrBit + 1 << 5
+    case .matchBitset:
+      return matchInstrBit + 1 << 4
+    case .matchBuiltin:
+      return matchInstrBit + 1 << 3
+    case .consumeBy:
+      return matchInstrBit + 1 << 2
+    // what other cases belong here? should this just be left open for future instrs?
+    // or should the payload bits propagate here
+    default:
+      return nil
+    }
+  }
+  private var priorityInstrBit: UInt64 { 1 << 6 }
+  private var priorityInstrEncoding: UInt64? {
+    switch self {
+    case .splitSaving:
+      return priorityInstrBit + 1 << 5
+    case .branch:
+      return priorityInstrBit + 1 << 4
+    case .quantify:
+      return priorityInstrBit + 1 << 3
+    case .save:
+      return priorityInstrBit + 1 << 2
+      // is begin capture high enough priority?
+    case .beginCapture:
+      return priorityInstrBit + 1 << 1
+    case .endCapture:
+      return priorityInstrBit + 1 << 0
+      // one more case can fit here, but what?
+    default:
+      return nil
+    }
+  }
+  private var standardEncoding: UInt64 {
+    assert(matchInstrEncoding == nil)
+    assert(priorityInstrEncoding == nil)
+    let raw = rawValue
+    assert(raw < 1 << 6)
+    return raw
+  }
+}
+
+struct EncodedOpcode: RawRepresentable, Equatable {
+  let rawValue: UInt64
+}
+
+extension EncodedOpcode {
+  // fixme: if i switch on these values instead, will swift generate the right code?
+  var isMatchInstr: Bool { (rawValue >> 7) & 1 == 1 }
+  var isMatch: Bool {
+    assert(isMatchInstr)
+    return (rawValue >> 6) & 1 == 1
+  }
+  var isMatchScalar: Bool {
+    assert(isMatchInstr)
+    return (rawValue >> 5) & 1 == 1
+  }
+  var isMatchBitset: Bool {
+    assert(isMatchInstr)
+    return (rawValue >> 4) & 1 == 1
+  }
+  var isMatchBuiltin: Bool {
+    assert(isMatchInstr)
+    return (rawValue >> 3) & 1 == 1
+  }
+  var isConsumeBy: Bool {
+    assert(isMatchInstr)
+    return (rawValue >> 2) & 1 == 1
+  }
+  var isPriorityInstr: Bool { (rawValue >> 6) & 1 == 1 }
+  var isSplitSaving: Bool {
+    assert(isPriorityInstr)
+    return (rawValue >> 5) & 1 == 1
+  }
+  var isBranch: Bool {
+    assert(isPriorityInstr)
+    return (rawValue >> 4) & 1 == 1
+  }
+  var isQuantify: Bool {
+    assert(isPriorityInstr)
+    return (rawValue >> 3) & 1 == 1
+  }
+  var isSave: Bool {
+    assert(isPriorityInstr)
+    return (rawValue >> 2) & 1 == 1
+  }
+  var isBeginCapture: Bool {
+    assert(isPriorityInstr)
+    return (rawValue >> 1) & 1 == 1
+  }
+  var isEndCapture: Bool {
+    assert(isPriorityInstr)
+    return rawValue & 1 == 1
+  }
+  private var defaultDecode: Instruction.OpCode {
+    assert(rawValue < (1 << 6))
+    return Instruction.OpCode.init(rawValue: rawValue).unsafelyUnwrapped
+  }
+  /// Decode back to a standard enum value
+  var decoded: Instruction.OpCode {
+    if isMatchInstr {
+      if isMatch { return .match }
+      if isMatchScalar { return .matchScalar }
+      if isMatchBitset { return .matchBitset }
+      if isMatchBuiltin { return .matchBuiltin }
+      if isConsumeBy { return .consumeBy}
+      fatalError()
+    }
+    if isPriorityInstr {
+      if isSplitSaving { return .splitSaving }
+      if isSave { return .save }
+      if isBranch { return .branch }
+      if isQuantify { return .quantify }
+      if isBeginCapture { return .beginCapture }
+      if isEndCapture { return .endCapture }
+      fatalError()
+    }
+    return defaultDecode
   }
 }
 
@@ -246,14 +387,9 @@ var _payloadMask: UInt64 { ~_opcodeMask }
 extension Instruction {
   var opcodeMask: UInt64 { 0xFF00_0000_0000_0000 }
 
-  var opcode: OpCode {
-    get {
-      OpCode(
-        rawValue: (rawValue & _opcodeMask) &>> 56
-      ).unsafelyUnwrapped
-    }
+  var opcode: EncodedOpcode {
+    get { EncodedOpcode(rawValue: (rawValue & _opcodeMask) >> 56) }
     set {
-      assert(newValue != .invalid, "consider hoisting this")
       assert(newValue.rawValue < 256)
       self.rawValue &= ~_opcodeMask
       self.rawValue |= newValue.rawValue &<< 56
@@ -267,12 +403,17 @@ extension Instruction {
     }
   }
 
-  var destructure: (opcode: OpCode, payload: Payload) {
-    get { (opcode, payload) }
-    set { self = Self(opcode, payload) }
+  var destructure: (opcode: EncodedOpcode, payload: Payload) {
+    (opcode, payload)
   }
 
   init(_ opcode: OpCode, _ payload: Payload/* = Payload()*/) {
+    self.init(rawValue: 0)
+    self.opcode = opcode.encoded
+    self.payload = payload
+    // TODO: check invariants
+  }
+  init(_ opcode: EncodedOpcode, _ payload: Payload/* = Payload()*/) {
     self.init(rawValue: 0)
     self.opcode = opcode
     self.payload = payload
@@ -280,7 +421,7 @@ extension Instruction {
   }
   init(_ opcode: OpCode) {
     self.init(rawValue: 0)
-    self.opcode = opcode
+    self.opcode = opcode.encoded
     //self.payload = payload
     // TODO: check invariants
     // TODO: placeholder bit pattern for fill-in-later
@@ -322,21 +463,21 @@ extension Instruction {
 extension Instruction {
   var instructionAddress: InstructionAddress? {
     switch opcode {
-    case .branch, .save, .saveAddress:
+    case OpCode.branch.encoded, OpCode.save.encoded, OpCode.saveAddress.encoded:
       return payload.addr
     default: return nil
     }
   }
   var elementRegister: ElementRegister? {
     switch opcode {
-    case .match:
+    case OpCode.match.encoded:
       return payload.elementPayload.1
     default: return nil
     }
   }
   var consumeFunctionRegister: ConsumeFunctionRegister? {
     switch opcode {
-    case .consumeBy: return payload.consumer
+    case OpCode.consumeBy.encoded: return payload.consumer
     default: return nil
     }
   }

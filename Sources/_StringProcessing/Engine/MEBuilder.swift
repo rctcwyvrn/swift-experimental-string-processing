@@ -341,7 +341,7 @@ extension MEProgram.Builder {
       let addr = addressTokens[tok.first.rawValue]!
       let payload: Instruction.Payload
 
-      switch inst.opcode {
+      switch inst.opcode.decoded {
       case .condBranchZeroElseDecrement:
         payload = .init(addr: addr, int: inst.payload.int)
       case .condBranchSamePosition:

@@ -56,7 +56,7 @@ extension DecodedInstr {
   /// Must stay in sync with Processor.cycle
   static func decode(_ instruction: Instruction) -> DecodedInstr {
     let (opcode, payload) = instruction.destructure
-    switch opcode {
+    switch opcode.decoded {
     case .invalid:
       fatalError("Invalid program")
     case .moveImmediate:
