@@ -3,13 +3,13 @@ extension Processor {
     var next: Input.Index?
     switch payload.type {
     case .bitset:
-      next = matchBitset(registers[payload.bitset])
+      next = _doMatchBitset(registers[payload.bitset])
     case .asciiChar:
-      next = matchScalar(UnicodeScalar.init(_value: UInt32(payload.asciiChar)),
-                         boundaryCheck: true)
+      next = _doMatchScalar(
+        UnicodeScalar.init(_value: UInt32(payload.asciiChar)), true)
     case .builtin:
       // We only emit .quantify if it consumes a single character
-      next = matchBuiltin(payload.builtin,
+      next = _doMatchBuiltin(payload.builtin,
                              payload.builtinIsInverted, payload.builtinIsStrict)
     case .any:
       let matched = currentPosition != input.endIndex

@@ -213,18 +213,22 @@ extension Processor {
 
   // Match against the current input element. Returns whether
   // it succeeded vs signaling an error.
-  func match(_ e: Element) -> Input.Index? {
+  mutating func match(_ e: Element) -> Bool {
     guard let cur = load(), cur == e else {
-      return nil
+      signalFailure()
+      return false
     }
-    return input.index(after: currentPosition)
+    _uncheckedForcedConsumeOne()
+    return true
   }
 
-  func matchCaseInsensitive(_ e: Element) -> Input.Index? {
+  mutating func matchCaseInsensitive(_ e: Element) -> Bool {
     guard let cur = load(), cur.lowercased() == e.lowercased() else {
-      return nil
+      signalFailure()
+      return false
     }
-    return input.index(after: currentPosition)
+    _uncheckedForcedConsumeOne()
+    return true
   }
 
   // Match against the current input prefix. Returns whether
@@ -233,8 +237,7 @@ extension Processor {
     _ seq: C
   ) -> Bool where C.Element == Input.Element {
     for e in seq {
-      guard let idx = match(e) else { return false }
-      resume(at: idx)
+      guard match(e) else { return false }
     }
     return true
   }
@@ -243,7 +246,7 @@ extension Processor {
     currentPosition < end ? input.unicodeScalars[currentPosition] : nil
   }
   
-  func matchScalar(_ s: Unicode.Scalar, boundaryCheck: Bool) -> Input.Index? {
+  func _doMatchScalar(_ s: Unicode.Scalar, _ boundaryCheck: Bool) -> Input.Index? {
     if s == loadScalar(),
        let idx = input.unicodeScalars.index(
         currentPosition,
@@ -255,38 +258,69 @@ extension Processor {
       return nil
     }
   }
+  
+  mutating func matchScalar(_ s: Unicode.Scalar, boundaryCheck: Bool) -> Bool {
+    guard let next = _doMatchScalar(s, boundaryCheck) else {
+      signalFailure()
+      return false
+    }
+    currentPosition = next
+    return true
+  }
 
-  func matchScalarCaseInsensitive(
+  mutating func matchScalarCaseInsensitive(
     _ s: Unicode.Scalar,
     boundaryCheck: Bool
-  ) -> Input.Index? {
-    if let curScalar = loadScalar(),
+  ) -> Bool {
+    guard let curScalar = loadScalar(),
           s.properties.lowercaseMapping == curScalar.properties.lowercaseMapping,
           let idx = input.unicodeScalars.index(
             currentPosition,
             offsetBy: 1,
             limitedBy: end),
-          (!boundaryCheck || input.isOnGraphemeClusterBoundary(idx)) {
-      return idx
+          (!boundaryCheck || input.isOnGraphemeClusterBoundary(idx))
+    else {
+      signalFailure()
+      return false
     }
-    return nil
+    currentPosition = idx
+    return true
   }
 
-  func matchBitset(_ bitset: DSLTree.CustomCharacterClass.AsciiBitset) -> Input.Index? {
+  func _doMatchBitset(_ bitset: DSLTree.CustomCharacterClass.AsciiBitset) -> Input.Index? {
     if let cur = load(), bitset.matches(char: cur) {
       return input.index(after: currentPosition)
+    } else {
+      return nil
     }
-    return nil
+  }
+
+  // If we have a bitset we know that the CharacterClass only matches against
+  // ascii characters, so check if the current input element is ascii then
+  // check if it is set in the bitset
+  mutating func matchBitset(
+    _ bitset: DSLTree.CustomCharacterClass.AsciiBitset
+  ) -> Bool {
+    guard let next = _doMatchBitset(bitset) else {
+      signalFailure()
+      return false
+    }
+    currentPosition = next
+    return true
   }
 
   // Equivalent of matchBitset but emitted when in unicode scalar semantic mode
-  func matchBitsetScalar(
+  mutating func matchBitsetScalar(
     _ bitset: DSLTree.CustomCharacterClass.AsciiBitset
-  ) -> Input.Index?  {
-    if let curScalar = loadScalar(), bitset.matches(scalar: curScalar) {
-      return input.unicodeScalars.index(currentPosition, offsetBy: 1, limitedBy: end)
+  ) -> Bool {
+    guard let curScalar = loadScalar(),
+          bitset.matches(scalar: curScalar),
+          let idx = input.unicodeScalars.index(currentPosition, offsetBy: 1, limitedBy: end) else {
+      signalFailure()
+      return false
     }
-    return nil
+    currentPosition = idx
+    return true
   }
 
   mutating func signalFailure() {
@@ -358,11 +392,6 @@ extension Processor {
     fatalError("Invalid code: Tried to clear save points when empty")
   }
   
-  func consumeBy(_ reg: ConsumeFunctionRegister) -> Input.Index? {
-    guard currentPosition < searchBounds.upperBound else { return nil }
-    return registers[reg](input, currentPosition..<searchBounds.upperBound)
-  }
-  
   mutating func cycle() {
     _checkInvariants()
     assert(state == .inProgress)
@@ -375,57 +404,80 @@ extension Processor {
     }
     let (encodedOp, payload) = fetch().destructure
     if encodedOp.isMatchInstr {
-      var matched: Input.Index?
       // MARK: Matching instructions
       if encodedOp.isMatch {
         // case .match
         let (isCaseInsensitive, reg) = payload.elementPayload
         let c = registers[reg]
         if isCaseInsensitive {
-          matched = matchCaseInsensitive(c)
+          if matchCaseInsensitive(c) {
+            controller.step()
+          }
         } else {
-          matched = match(c)
+          if match(c) {
+            controller.step()
+          }
         }
+        return
       }
       if encodedOp.isMatchBitset {
         // case .matchBitset
         let (isScalar, reg) = payload.bitsetPayload
         let bitset = registers[reg]
         if isScalar {
-          matched = matchBitsetScalar(bitset)
+          if matchBitsetScalar(bitset) {
+            controller.step()
+          }
         } else {
-          matched = matchBitset(bitset)
+          if matchBitset(bitset) {
+            controller.step()
+          }
         }
+        return
       }
       if encodedOp.isMatchScalar {
         // case .matchScalar
         let (scalar, caseInsensitive, boundaryCheck) = payload.scalarPayload
         if caseInsensitive {
-          matched = matchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck)
+          if matchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck) {
+            controller.step()
+          }
         } else {
-          matched = matchScalar(scalar, boundaryCheck: boundaryCheck)
+          if matchScalar(scalar, boundaryCheck: boundaryCheck) {
+            controller.step()
+          }
         }
+        return
       }
       if encodedOp.isMatchBuiltin {
         // case .matchBuiltin
         let payload = payload.characterClassPayload
         if payload.isScalar {
-          matched = matchBuiltinScalar(payload.cc, payload.isInverted, payload.isStrict)
+          if matchBuiltinScalar(payload.cc, payload.isInverted, payload.isStrict) {
+            controller.step()
+          }
         } else {
-          matched = matchBuiltin(payload.cc, payload.isInverted, payload.isStrict)
+          if matchBuiltin(payload.cc, payload.isInverted, payload.isStrict) {
+            controller.step()
+          }
         }
+        return
       }
       if encodedOp.isConsumeBy {
         // case .consumeBy
-        matched = consumeBy(payload.consumer)
-      }
-      guard let next = matched else {
-        signalFailure()
+        let reg = payload.consumer
+        guard currentPosition < searchBounds.upperBound,
+              let nextIndex = registers[reg](
+                input, currentPosition..<searchBounds.upperBound)
+        else {
+          signalFailure()
+          return
+        }
+        resume(at: nextIndex)
+        controller.step()
         return
       }
-      resume(at: next)
-      controller.step()
-      return
+      fatalError("Unreachable")
     }
     
     if encodedOp.isPriorityInstr {
@@ -596,11 +648,8 @@ extension Processor {
         signalFailure()
         return
       }
-      if matchSeq(input[range])  {
+      if matchSeq(input[range]) {
         controller.step()
-      } else {
-        signalFailure()
-        return
       }
 
     case .transformCapture:

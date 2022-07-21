@@ -1,7 +1,7 @@
 @_implementationOnly import _RegexParser // For AssertionKind
 
 extension Processor {
-  func matchBuiltin(
+  func _doMatchBuiltin(
     _ cc: _CharacterClassModel.Representation,
     _ isInverted: Bool,
     _ isStrictAscii: Bool
@@ -35,14 +35,28 @@ extension Processor {
     }
     return matched ? next : nil
   }
-  
-  func matchBuiltinScalar(
+
+  mutating func matchBuiltin(
     _ cc: _CharacterClassModel.Representation,
     _ isInverted: Bool,
     _ isStrictAscii: Bool
-  ) -> Input.Index? {
+  ) -> Bool {
+    guard let next = _doMatchBuiltin(cc, isInverted, isStrictAscii) else {
+      signalFailure()
+      return false
+    }
+    currentPosition = next
+    return true
+  }
+  
+  mutating func matchBuiltinScalar(
+    _ cc: _CharacterClassModel.Representation,
+    _ isInverted: Bool,
+    _ isStrictAscii: Bool
+  ) -> Bool {
     guard let c = loadScalar() else {
-      return nil
+      signalFailure()
+      return false
     }
 
     var matched: Bool
@@ -72,7 +86,13 @@ extension Processor {
     if isInverted {
       matched.toggle()
     }
-    return matched ? next : nil
+    if matched {
+      currentPosition = next
+      return true
+    } else {
+      signalFailure()
+      return false
+    }
   }
   
   func isAtStartOfLine(_ payload: AssertionPayload) -> Bool {
