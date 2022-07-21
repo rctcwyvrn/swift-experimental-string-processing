@@ -14,16 +14,20 @@ extension Processor {
       print("\(opcode),\(count)")
     }
   }
+
+  mutating func measure() {
+    let (encoded, _) = fetch().destructure
+    let opcode = encoded.decoded
+    if metrics.instructionCounts.keys.contains(opcode) {
+      metrics.instructionCounts[opcode]! += 1
+    } else {
+      metrics.instructionCounts.updateValue(1, forKey: opcode)
+    }
+  }
   
   mutating func measureMetrics() {
     if shouldMeasureMetrics {
-      let (encoded, _) = fetch().destructure
-      let opcode = encoded.decoded
-      if metrics.instructionCounts.keys.contains(opcode) {
-        metrics.instructionCounts[opcode]! += 1
-      } else {
-        metrics.instructionCounts.updateValue(1, forKey: opcode)
-      }
+      measure()
     }
   }
 }
