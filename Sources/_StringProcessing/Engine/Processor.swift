@@ -362,51 +362,6 @@ extension Processor {
     guard currentPosition < searchBounds.upperBound else { return nil }
     return registers[reg](input, currentPosition..<searchBounds.upperBound)
   }
-
-  func tryMatchInstr(
-    _ op: EncodedOpcode,
-    _ payload: Instruction.Payload
-  ) -> Input.Index? {
-    // MARK: Matching instructions
-    if op.isMatch {
-      // case .match
-      let (isCaseInsensitive, reg) = payload.elementPayload
-      if isCaseInsensitive {
-        return matchCaseInsensitive(registers[reg])
-      } else {
-        return match(registers[reg])
-      }
-    }
-    if op.isMatchBitset {
-      // case .matchBitset
-      let (isScalar, reg) = payload.bitsetPayload
-      let bitset = registers[reg]
-      if isScalar {
-        return matchBitsetScalar(bitset)
-      } else {
-        return matchBitset(bitset)
-      }
-    }
-    if op.isMatchScalar {
-      let (scalar, caseInsensitive, boundaryCheck) = payload.scalarPayload
-      if caseInsensitive {
-        return matchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck)
-      } else {
-        return matchScalar(scalar, boundaryCheck: boundaryCheck)
-      }
-    }
-    if op.isMatchBuiltin {
-      let payload = payload.characterClassPayload
-      if payload.isScalar {
-        return matchBuiltinScalar(payload.cc, payload.isInverted, payload.isStrict)
-      }
-      return matchBuiltin(payload.cc, payload.isInverted, payload.isStrict)
-    }
-    if op.isConsumeBy {
-      return consumeBy(payload.consumer)
-    }
-    fatalError("Unreachable")
-  }
   
   mutating func cycle() {
     _checkInvariants()
@@ -415,12 +370,56 @@ extension Processor {
     defer {
       cycleCount += 1
       trace()
-      // measureMetrics()
+      measureMetrics()
       _checkInvariants()
     }
     let (encodedOp, payload) = fetch().destructure
     if encodedOp.isMatchInstr {
-      guard let next = tryMatchInstr(encodedOp, payload) else {
+      var matched: Input.Index?
+      // MARK: Matching instructions
+      if encodedOp.isMatch {
+        // case .match
+        let (isCaseInsensitive, reg) = payload.elementPayload
+        let c = registers[reg]
+        if isCaseInsensitive {
+          matched = matchCaseInsensitive(c)
+        } else {
+          matched = match(c)
+        }
+      }
+      if encodedOp.isMatchBitset {
+        // case .matchBitset
+        let (isScalar, reg) = payload.bitsetPayload
+        let bitset = registers[reg]
+        if isScalar {
+          matched = matchBitsetScalar(bitset)
+        } else {
+          matched = matchBitset(bitset)
+        }
+      }
+      if encodedOp.isMatchScalar {
+        // case .matchScalar
+        let (scalar, caseInsensitive, boundaryCheck) = payload.scalarPayload
+        if caseInsensitive {
+          matched = matchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck)
+        } else {
+          matched = matchScalar(scalar, boundaryCheck: boundaryCheck)
+        }
+      }
+      if encodedOp.isMatchBuiltin {
+        // case .matchBuiltin
+        let payload = payload.characterClassPayload
+        if payload.isScalar {
+          matched = matchBuiltinScalar(payload.cc, payload.isInverted, payload.isStrict)
+        } else {
+          matched = matchBuiltin(payload.cc, payload.isInverted, payload.isStrict)
+        }
+      }
+      if encodedOp.isConsumeBy {
+        // case .consumeBy
+        matched = consumeBy(payload.consumer)
+      }
+      guard let next = matched else {
         signalFailure()
         return
       }
